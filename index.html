@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Controle Financeiro</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen flex flex-col items-center p-6">
+
+  <h1 class="text-4xl font-bold text-gray-400 mb-8"> Controle Financeiro Pessoal</h1>
+
+
+  <form id="form-transacao" class="bg-white p-6 rounded-2xl shadow-lg w-full max-w-lg space-y-4">
+    <input type="text" id="descricao" placeholder="Descrição" required
+      class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300">
+    <input type="number" id="valor" placeholder="Valor" required
+      class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300">
+
+    <select id="tipo"
+      class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300">
+      <option value="entrada">Entrada</option>
+      <option value="saida">Saída</option>
+    </select>
+
+    <input type="text" id="categoria" placeholder="Categoria" required
+      class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300">
+    <input type="date" id="data" required
+      class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300">
+
+    <button type="submit"
+      class="w-full bg-gray-300 hover:bg-gray-400 text-white font-semibold py-3 rounded-lg transition">Adicionar
+      Transação</button>
+  </form>
+
+
+  <div class="bg-white p-6 rounded-2xl shadow-lg w-full max-w-lg my-6 text-center">
+    <h2 class="text-2xl font-semibold text-gray-700">Saldo Atual:</h2>
+    <span id="saldo" class="text-3xl font-bold text-gray-500">R$ 0,00</span>
+  </div>
+
+
+  <ul id="lista-transacoes" class="w-full max-w-lg space-y-3"></ul>
+
+
+  <div class="w-full max-w-lg mt-8">
+    <canvas id="grafico"></canvas>
+  </div>
+
+
+  <div class="flex flex-col md:flex-row gap-4 mt-8">
+    <button id="exportarCSV"
+      class="bg-gray-300 hover:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition">Exportar
+      CSV</button>
+
+    <button id="exportarExcel"
+      class="bg-gray-300 hover:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition">Exportar
+      Excel</button>
+
+    <button id="exportarPDF"
+      class="bg-gray-300 hover:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition">Exportar Gráfico
+      PDF</button>
+  </div>
+
+  <script>
+    let transacoes = JSON.parse(localStorage.getItem('transacoes')) || [];
+
+    const form = document.getElementById('form-transacao');
+    const lista = document.getElementById('lista-transacoes');
+    const saldoEl = document.getElementById('saldo');
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const descricao = document.getElementById('descricao').value;
+      const valor = parseFloat(document.getElementById('valor').value);
+      const tipo = document.getElementById('tipo').value;
+      const categoria = document.getElementById('categoria').value;
+      const data = document.getElementById('data').value;
+
+      const transacao = { id: Date.now(), descricao, valor, tipo, categoria, data };
+
+      transacoes.push(transacao);
+      salvarTransacoes();
+      atualizarUI();
+      form.reset();
+    });
+
+    function salvarTransacoes() {
+      localStorage.setItem('transacoes', JSON.stringify(transacoes));
+    }
+
+    function atualizarUI() {
+      lista.innerHTML = '';
+
+      let saldo = 0;
+
+      transacoes.forEach(transacao => {
+        const li = document.createElement('li');
+        li.className = "bg-white p-4 rounded-xl shadow flex justify-between items-center";
+
+        const sinal = transacao.tipo === 'entrada' ? '+' : '-';
+        li.innerHTML = `
+          <span class="text-gray-700">${transacao.descricao} <span class="text-sm text-gray-400">(${transacao.categoria})</span></span>
+          <span class="${transacao.tipo === 'entrada' ? 'text-green-500' : 'text-red-500'} font-semibold">${sinal} R$ ${transacao.valor.toFixed(2)}</span>
+        `;
+
+        lista.appendChild(li);
+
+        saldo += transacao.tipo === 'entrada' ? transacao.valor : -transacao.valor;
+      });
+
+      saldoEl.textContent = `R$ ${saldo.toFixed(2)}`;
+
+      atualizarGrafico();
+    }
+
+    let grafico;
+
+    function atualizarGrafico() {
+      const categorias = {};
+
+      transacoes.forEach(t => {
+        if (t.tipo === 'saida') {
+          categorias[t.categoria] = (categorias[t.categoria] || 0) + t.valor;
+        }
+      });
+
+      const labels = Object.keys(categorias);
+      const data = Object.values(categorias);
+
+      if (grafico) {
+        grafico.destroy();
+      }
+
+      const ctx = document.getElementById('grafico').getContext('2d');
+      grafico = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Gastos por Categoria',
+            data: data,
+            backgroundColor: ['#fbcfe8', '#fde68a', '#bbf7d0', '#bfdbfe', '#ddd6fe']
+          }]
+        }
+      });
+    }
+
+    document.getElementById('exportarCSV').addEventListener('click', function () {
+      const linhas = [['Descrição', 'Valor', 'Tipo', 'Categoria', 'Data']];
+
+      transacoes.forEach(t => {
+        linhas.push([t.descricao, t.valor, t.tipo, t.categoria, t.data]);
+      });
+
+      const csv = linhas.map(e => e.join(",")).join("\n");
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'transacoes.csv');
+      document.body.appendChild(link);
+
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    document.getElementById('exportarExcel').addEventListener('click', function () {
+      const wb = XLSX.utils.book_new();
+      const ws_data = [['Descrição', 'Valor', 'Tipo', 'Categoria', 'Data']];
+
+      transacoes.forEach(t => {
+        ws_data.push([t.descricao, t.valor, t.tipo, t.categoria, t.data]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(ws_data);
+      XLSX.utils.book_append_sheet(wb, ws, "Transações");
+
+      XLSX.writeFile(wb, "transacoes.xlsx");
+    });
+
+    document.getElementById('exportarPDF').addEventListener('click', function () {
+      const graficoCanvas = document.getElementById('grafico');
+
+      html2canvas(graficoCanvas).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF();
+
+        pdf.addImage(imgData, 'PNG', 10, 10, 180, 100);
+        pdf.save('grafico-financeiro.pdf');
+      });
+    });
+
+    atualizarUI();
+  </script>
+
+</body>
+
+</html>
